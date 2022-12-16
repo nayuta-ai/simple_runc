@@ -153,7 +153,6 @@ func configLogrus(context *cli.Context) error {
 			},
 		})
 	}
-
 	switch f := context.GlobalString("log-format"); f {
 	case "":
 		// do nothing

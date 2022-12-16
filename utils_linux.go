@@ -193,7 +193,6 @@ func createContainer(context *cli.Context, id string, spec *specs.Spec) (libcont
 	if err != nil {
 		return nil, err
 	}
-	fmt.Println(factory)
 	return factory.Create(id, config)
 }
 
@@ -368,6 +367,9 @@ func startContainer(context *cli.Context, action CtAct, criuOpts *libcontainer.C
 	}
 
 	container, err := createContainer(context, id, spec)
+	if err != nil {
+		return -1, err
+	}
 	if notifySocket != nil {
 		if err := notifySocket.setupSocketDirectory(); err != nil {
 			return -1, err

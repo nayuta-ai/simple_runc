@@ -32,3 +32,8 @@ stop:
 	docker stop $(IMAGE_NAME)
 
 restart: stop run
+
+install:
+	go build .
+	install -D -m0755 simple_runc /usr/local/bin/runc
+	rm simple_runc
