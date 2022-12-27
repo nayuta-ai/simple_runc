@@ -8,9 +8,9 @@ COPY go.mod go.sum ./
 RUN go mod download && go mod verify
 
 RUN apt-get update && \
-    apt-get install sudo
+    apt-get install -y sudo gcc
 
-# duser setting
+# # duser setting
 # ARG USER_ID
 # ARG GROUP_ID
 # RUN addgroup --gid $GROUP_ID duser && \
