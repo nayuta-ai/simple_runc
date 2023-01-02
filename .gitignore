@@ -79,8 +79,9 @@ CMakeFiles
 cmake_install.cmake
 
 # Google Test output files
-*.log
-*.xml
+libcontainer/tests/nsenter/CMakeCache.txt
+libcontainer/tests/nsenter/example_test
+libcontainer/tests/nsenter/Makefile
 
 ### Go ###
 # If you prefer the allow list template instead of the deny list, see community template:
