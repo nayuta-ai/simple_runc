@@ -1,0 +1,130 @@
+#include <gtest/gtest.h>
+#include <fcntl.h>
+#include <setjmp.h>
+#include <stdlib.h>
+#include <sched.h>
+#include <sys/types.h>
+#include <sys/wait.h>
+#include <unistd.h>
+#include "../../nsenter/nsexec.h"
+
+TEST(CloneParentTest, BasicTest) {
+  jmp_buf env;
+  int jmpval = 10;
+  int status;
+
+  // test the clone_parent function
+  pid_t pid = clone_parent(&env, jmpval);
+  EXPECT_GT(pid, 0);  // check that clone returned a valid pid
+
+  if (setjmp(env) == 0) {
+    // setjmp returns 0 the first time it is called
+    // code that may cause a longjmp call goes here
+  } else {
+    // setjmp returns non-zero when longjmp is called
+    // code to handle the longjmp goes here
+    waitpid(pid, &status, 0);  // wait for the child to exit
+    EXPECT_EQ(WEXITSTATUS(status), 0);  // check that the child exited with status 0
+  }
+}
+
+
+
+TEST(LogMessageTest, LogsErrorMessage) {
+  // Redirect stdout to a string
+  testing::internal::CaptureStdout();
+
+  log_message(LOG_LEVEL_ERROR, "This is an error message");
+  rewind(stdout);
+
+  char expected_output[1024];
+  time_t t = time(NULL);
+  struct tm tm = *localtime(&t);
+  sprintf(expected_output, "[%04d-%02d-%02d %02d:%02d:%02d] [ERROR] This is an error message\n",
+          tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday,
+          tm.tm_hour, tm.tm_min, tm.tm_sec);
+
+  // Get the captured output
+  std::string output = testing::internal::GetCapturedStdout();
+
+  // Verify that the output is correct
+  EXPECT_EQ(output, expected_output);
+}
+
+TEST(LogMessageTest, LogsWarningMessage) {
+  // Redirect stdout to a string
+  testing::internal::CaptureStdout();
+
+  log_message(LOG_LEVEL_WARNING, "This is a warning message");
+  rewind(stdout);
+
+  char expected_output[1024];
+  time_t t = time(NULL);
+  struct tm tm = *localtime(&t);
+  sprintf(expected_output, "[%04d-%02d-%02d %02d:%02d:%02d] [WARNING] This is a warning message\n",
+          tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday,
+          tm.tm_hour, tm.tm_min, tm.tm_sec);
+
+  // Get the captured output
+  std::string output = testing::internal::GetCapturedStdout();
+
+  // Verify that the output is correct
+  EXPECT_EQ(output, expected_output);
+}
+
+TEST(LogMessageTest, LogsInfoMessage) {
+  // Redirect stdout to a string
+  testing::internal::CaptureStdout();
+
+  log_message(LOG_LEVEL_INFO, "This is an info message");
+
+  char expected_output[1024];
+  time_t t = time(NULL);
+  struct tm tm = *localtime(&t);
+  sprintf(expected_output, "[%04d-%02d-%02d %02d:%02d:%02d] [INFO] This is an info message\n",
+          tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday,
+          tm.tm_hour, tm.tm_min, tm.tm_sec);
+
+  // Get the captured output
+  std::string output = testing::internal::GetCapturedStdout();
+
+  // Verify that the output is correct
+  EXPECT_EQ(output, expected_output);
+}
+
+TEST(LogMessageTest, LogsDebugMessage) {
+  // Redirect stdout to a string
+  testing::internal::CaptureStdout();
+
+  log_message(LOG_LEVEL_DEBUG, "This is a debug message");
+
+  char expected_output[1024];
+  time_t t = time(NULL);
+  struct tm tm = *localtime(&t);
+  sprintf(expected_output, "[%04d-%02d-%02d %02d:%02d:%02d] [DEBUG] This is a debug message\n",
+          tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday,
+          tm.tm_hour, tm.tm_min, tm.tm_sec);
+
+  // Get the captured output
+  std::string output = testing::internal::GetCapturedStdout();
+
+  // Verify that the output is correct
+  EXPECT_EQ(output, expected_output);
+}
+
+TEST(UpdateUidmapTest, ValidMap) {
+  // Create a sample map and write it to a temporary file
+  char map[] = "0 100000 100000\n";
+  int map_len = strlen(map);
+  int jmpval = 10;
+  jmp_buf env;
+
+  // Get the PID of the current process
+  pid_t pid = clone_parent(&env, jmpval);
+
+  // Call the update_uidmap function with the temporary file path and the current PID
+  int result = update_uidmap(pid, map, map_len);
+
+  // Check that the function returned successfully
+  EXPECT_EQ(result, 0);
+}
