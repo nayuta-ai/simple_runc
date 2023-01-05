@@ -45,6 +45,13 @@ enum sync_t {
 	SYNC_MOUNTSOURCES_ACK = 0x47,	/* All mount sources have been sent. */
 };
 
+struct nlconfig_t {
+	char *data;
+
+	/* Process settings. */
+	uint32_t cloneflags;
+};
+
 static int child_func(void *arg){
     struct clone_t *ca = (struct clone_t *)arg;
     longjmp(*ca->env, ca->jmpval);
@@ -86,6 +93,27 @@ void log_message(int log_level, const char* message) {
           tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday,
           tm.tm_hour, tm.tm_min, tm.tm_sec,
           log_level_str, message);
+}
+
+static int update_uidmap(pid_t pid, char *map, size_t map_len){
+  int fd;
+  char map_path[1024];
+
+  snprintf(map_path, sizeof(map_path), "/proc/%d/uid_map", pid);
+  fd = open(map_path, O_WRONLY);
+  if (fd < 0) {
+    perror("open uid_map");
+    return -1;
+  }
+
+  if (write(fd, map, map_len) < 0) {
+    perror("write uid_map");
+    close(fd);
+    return -1;
+  }
+
+  close(fd);
+  return 0;
 }
 
 #endif  // NEXEC_H

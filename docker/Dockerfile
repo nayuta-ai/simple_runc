@@ -14,7 +14,7 @@ RUN env \
   && apt-get update \
   && apt-get install -q -y vim git cmake make g++ lcov \
       gettext-base jq curl \
-      libbsd0 libbsd-dev \
+      libbsd0 libbsd-dev sudo\
   && apt-get clean \
   && rm -rf /var/lib/apt/lists/*
 

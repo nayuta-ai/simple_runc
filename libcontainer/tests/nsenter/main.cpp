@@ -1,15 +1,12 @@
 #include <gtest/gtest.h>
+#include <fcntl.h>
 #include <setjmp.h>
 #include <stdlib.h>
+#include <sched.h>
 #include <sys/types.h>
 #include <sys/wait.h>
 #include <unistd.h>
 #include "../../nsenter/nsexec.h"
-
-int main(int argc, char **argv) {
-  ::testing::InitGoogleTest(&argc, argv);
-  return RUN_ALL_TESTS();
-}
 
 TEST(CloneParentTest, BasicTest) {
   jmp_buf env;
@@ -113,4 +110,21 @@ TEST(LogMessageTest, LogsDebugMessage) {
 
   // Verify that the output is correct
   EXPECT_EQ(output, expected_output);
+}
+
+TEST(UpdateUidmapTest, ValidMap) {
+  // Create a sample map and write it to a temporary file
+  char map[] = "0 100000 100000\n";
+  int map_len = strlen(map);
+  int jmpval = 10;
+  jmp_buf env;
+
+  // Get the PID of the current process
+  pid_t pid = clone_parent(&env, jmpval);
+
+  // Call the update_uidmap function with the temporary file path and the current PID
+  int result = update_uidmap(pid, map, map_len);
+
+  // Check that the function returned successfully
+  EXPECT_EQ(result, 0);
 }

@@ -27,7 +27,7 @@ run:
 exec:
 	docker exec \
 		-it \
-		$(CONTAINER_NAME) /bin/bash 
+		$(CONTAINER_NAME) /bin/bash
 
 stop:
 	docker stop $(IMAGE_NAME)
