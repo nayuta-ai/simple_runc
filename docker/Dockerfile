@@ -1,5 +1,4 @@
-
-FROM golang:1.19
+FROM golang:1.20-rc-bullseye
 
 WORKDIR /usr/src
 
@@ -13,8 +12,8 @@ ENV DEBIAN_FRONTEND=noninteractive
 RUN env \
   && apt-get update \
   && apt-get install -q -y vim git cmake make g++ lcov \
-      gettext-base jq curl \
-      libbsd0 libbsd-dev sudo\
+      gettext-base jq curl tmux\
+      libbsd0 libbsd-dev sudo kmod\
   && apt-get clean \
   && rm -rf /var/lib/apt/lists/*
 

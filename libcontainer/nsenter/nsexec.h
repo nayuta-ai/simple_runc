@@ -11,6 +11,8 @@
 #include <signal.h>
 
 #define CLONE_PARENT 0x00008000
+#define CLONE_NEWUSER           0x10000000      /* New user namespace */
+#define CLONE_NEWCGROUP         0x02000000      /* New cgroup namespace */
 
 #define STAGE_SETUP  -1
 #define STAGE_PARENT  0
@@ -108,6 +110,27 @@ static int update_uidmap(pid_t pid, char *map, size_t map_len){
 
   if (write(fd, map, map_len) < 0) {
     perror("write uid_map");
+    close(fd);
+    return -1;
+  }
+
+  close(fd);
+  return 0;
+}
+
+static int update_gidmap(pid_t pid, char *map, size_t map_len){
+  int fd;
+  char map_path[1024];
+
+  snprintf(map_path, sizeof(map_path), "/proc/%d/gid_map", pid);
+  fd = open(map_path, O_WRONLY);
+  if (fd < 0) {
+    perror("open gid_map");
+    return -1;
+  }
+
+  if (write(fd, map, map_len) < 0) {
+    perror("write gid_map");
     close(fd);
     return -1;
   }
