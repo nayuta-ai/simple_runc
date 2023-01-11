@@ -6,7 +6,9 @@
 #include <stdbool.h>
 #include <sched.h>
 #include <sys/socket.h>
+#include <sys/prctl.h>
 #include "nsexec.h"
+#include "namespace.h"
 
 uint32_t readint32(uint32_t value) {
   return value;
@@ -21,6 +23,8 @@ void nsexec(void) {
   int sync_child_pipe[2], sync_grandchild_pipe[2];
   // sync_child_pipe[0] and sync_child_pipe[1] are now connected to each other
   // and can be used to send and receive data using the read and write functions
+  if (setresgid(0, 0, 0) < 0)
+		bail("failed to become root in user namespace");
 
   // Create socket pair between parent and child.
   if (socketpair(AF_LOCAL, SOCK_STREAM, 0, sync_child_pipe) < 0)
@@ -30,7 +34,8 @@ void nsexec(void) {
   if (socketpair(AF_LOCAL, SOCK_STREAM, 0, sync_grandchild_pipe) < 0)
   bail("failed to setup sync pipe between parent and grandchild");
 
-  config.cloneflags = readint32(CLONE_NEWUSER);
+  config.cloneflags = readint32(CLONE_NEWUSER); 
+  // printf("uid = %u, euid = %u, gid = %u, egid = %u\n", getuid(), geteuid(), getgid(), getegid());
   current_stage = setjmp(env);
   switch(current_stage){
     // The runc init parent process creates new child process, the uid map, and gid map.
@@ -39,14 +44,14 @@ void nsexec(void) {
       pid_t stage1_pid = -1, stage2_pid = -1;
       bool stage1_complete;
 
-      log_message(LOG_LEVEL_DEBUG, "stage-1");
+      write_log(LOG_LEVEL_DEBUG, "stage-1");
       stage1_pid = clone_parent(&env, STAGE_CHILD);
       if (stage1_pid < 0) bail("unable to spawn stage-1");
       syncfd = sync_child_pipe[1];
       if (close(sync_child_pipe[0]) < 0)
       bail("failed to close sync_child_pipe[0] fd");
       stage1_complete = false;
-      log_message(LOG_LEVEL_DEBUG, "stage-1 synchronisation loop");
+      write_log(LOG_LEVEL_DEBUG, "stage-1 synchronisation loop");
       while (!stage1_complete) {
         enum sync_t s;
         if (read(syncfd, &s, sizeof(s)) != sizeof(s)){
@@ -54,7 +59,8 @@ void nsexec(void) {
         }
         switch (s) {
           case SYNC_USERMAP_PLS:
-            log_message(LOG_LEVEL_DEBUG, "stage-1 requested userns mappings");
+            write_log(LOG_LEVEL_DEBUG, "stage-1 requested userns mappings");
+            // printf("pid:%d, ppid:%d, stage1_pid:%d\n", getpid(), getppid(), stage1_pid);
             if (update_uidmap(stage1_pid, map, strlen(map)) < 0) bail("failed to update uidmap");
             if (update_gidmap(stage1_pid, map, strlen(map)) < 0) bail("failed to update gidmap");
             s = SYNC_USERMAP_ACK;
@@ -63,34 +69,37 @@ void nsexec(void) {
             }
             break;
           case SYNC_RECVPID_PLS:
-            log_message(LOG_LEVEL_DEBUG, "stage-1 requested pid to be forwarded");
+            write_log(LOG_LEVEL_DEBUG, "stage-1 requested pid to be forwarded");
             if (read(syncfd, &stage2_pid, sizeof(stage2_pid)) != sizeof(stage2_pid)) bail("failed to sync with stage-1: read(stage2_pid)");
             s = SYNC_RECVPID_ACK;
             if (write(syncfd, &s, sizeof(s)) != sizeof(s)) bail("failed to sync with stage-1: write(SYNC_RECVPID_ACK)");
-            int len = dprintf(pipenum, "{\"stage1_pid\":%d,\"stage2_pid\":%d}\n", stage1_pid,stage2_pid);
-            if (len < 0) bail("failed to sync with runc: write(pid-JSON)");
+            // int len = dprintf(pipenum, "{\"stage1_pid\":%d,\"stage2_pid\":%d}\n", stage1_pid,stage2_pid);
+            // if (len < 0) bail("failed to sync with runc: write(pid-JSON)");
             break;
           case SYNC_CHILD_FINISH:
-            log_message(LOG_LEVEL_DEBUG, "stage-1 complete");
+            write_log(LOG_LEVEL_DEBUG, "stage-1 complete");
             stage1_complete = true;
             break;
           default:{
-            // stage1_complete = true;
             break;
           }
         }
       }
+      write_log(LOG_LEVEL_DEBUG, "<- stage-1 synchronisation loop");
     }
     case STAGE_CHILD:{
-      char* message;
+      char message[1024];
       pid_t stage2_pid = -1;
 			enum sync_t s;
 
+      /* We're in a child and thus need to tell the parent if we die. */
+      syncfd = sync_child_pipe[0];
+      if (close(sync_child_pipe[1]) < 0)
+        bail("failed to close sync_child_pipe[1] fd");
+      prctl(PR_SET_NAME, (unsigned long)"runc:[1:CHILD]", 0, 0, 0);
+      write_log(LOG_LEVEL_DEBUG, "~> nsexec stage-1");
+
       if (config.cloneflags & CLONE_NEWUSER) {
-        /* We're in a child and thus need to tell the parent if we die. */
-        syncfd = sync_child_pipe[0];
-        if (close(sync_child_pipe[1]) < 0)
-          bail("failed to close sync_child_pipe[1] fd");
         // Create new user namespace.
         if (unshare(CLONE_NEWUSER) < 0)
           bail("failed to unshare user namespace");
@@ -99,7 +108,7 @@ void nsexec(void) {
           bail("failed to sync with parent: write(SYNC_USERMAP_PLS)\n");
         }
         /* ... wait for mapping ... */
-        log_message(LOG_LEVEL_DEBUG, "request stage-0 to map user namespace");
+        write_log(LOG_LEVEL_DEBUG, "request stage-0 to map user namespace");
         if (read(syncfd, &s, sizeof(s)) != sizeof(s))
           bail("failed to sync with parent: read(SYNC_USERMAP_ACK)");
         if (s != SYNC_USERMAP_ACK)
@@ -108,16 +117,20 @@ void nsexec(void) {
         /* Become root in the namespace proper. */
 				if (setresuid(0, 0, 0) < 0)
 					bail("failed to become root in user namespace");
+        if (setresgid(0, 0, 0) < 0)
+					bail("failed to become root in user namespace");
       }
-      // log_message(LOG_LEVEL_DEBUG, "unshare remaining namespace (except cgroupns)");
+      write_log(LOG_LEVEL_DEBUG, "unshare remaining namespace (except cgroupns)");
+      // printf("uid = %u, euid = %u, gid = %u, egid = %u\n", getuid(), geteuid(), getgid(), getegid());
+      if (unshare(config.cloneflags & ~CLONE_NEWCGROUP) < 0)
+				bail("failed to unshare remaining namespaces (except cgroupns)");
+      write_log(LOG_LEVEL_DEBUG, "stage-2");
+      stage2_pid = clone_parent(&env, STAGE_INIT);
+      if (stage2_pid < 0) bail("unable to spawn stage-2");
+      // printf("uid = %u, euid = %u, gid = %u, egid = %u\n", getuid(), geteuid(), getgid(), getegid());
+      snprintf(message, 1024, "request stage-0 to forward stage-2 pid (%d)", stage2_pid);
 
-      // if (unshare(config.cloneflags & ~CLONE_NEWCGROUP) < 0)
-			// 	bail("failed to unshare remaining namespaces (except cgroupns)");
-      // log_message(LOG_LEVEL_DEBUG, "stage-2");
-      // stage2_pid = clone_parent(&env, STAGE_INIT);
-      // if (stage2_pid < 0) bail("unable to spawn stage-2");
-      // sprintf(message, "request stage-0 to forward stage-2 pid (%d)", stage2_pid);
-      // log_message(LOG_LEVEL_DEBUG, message);
+      write_log(LOG_LEVEL_DEBUG, message);
       s = SYNC_RECVPID_PLS;
       if (write(syncfd, &s, sizeof(s))!=sizeof(s)) bail("failed to sync with parent: write(SYNC_RECVPID_PLS)");
       if (write(syncfd, &stage2_pid, sizeof(stage2_pid))!=sizeof(stage2_pid)) bail("failed to sync with parent: write(stage2_pid)");
@@ -125,14 +138,19 @@ void nsexec(void) {
       /* ... wait for parent to get the pid ... */
       if (read(syncfd, &s, sizeof(s)) != sizeof(s)) bail("failed to sync with parent: read(SYNC_RECVPID_ACK)");
       if (s != SYNC_RECVPID_ACK) bail("failed to sync with parent: SYNC_RECVPID_ACK: got %u", s);
-      log_message(LOG_LEVEL_DEBUG, "signal completion to stage-0");
+      write_log(LOG_LEVEL_DEBUG, "signal completion to stage-0");
       s = SYNC_CHILD_FINISH;
       if (write(syncfd, &s, sizeof(s)) != sizeof(s)) bail("failed to sync with parent: write(SYNC_CHILD_FINISH)");
-      log_message(LOG_LEVEL_DEBUG, "<~ nsexec stage-1");
+      write_log(LOG_LEVEL_DEBUG, "<~ nsexec stage-1");
       exit(0);
     }
     break;
-
+    case STAGE_INIT:{
+      write_log(LOG_LEVEL_DEBUG, "STAGE_INIT");
+      if (close(sync_child_pipe[0]) < 0)
+				bail("failed to close sync_child_pipe[0] fd");
+      exit(0);
+    }
     default:
       break;
   }

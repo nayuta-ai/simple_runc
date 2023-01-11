@@ -10,10 +10,6 @@
 #include <unistd.h>
 #include <signal.h>
 
-#define CLONE_PARENT 0x00008000
-#define CLONE_NEWUSER           0x10000000      /* New user namespace */
-#define CLONE_NEWCGROUP         0x02000000      /* New cgroup namespace */
-
 #define STAGE_SETUP  -1
 #define STAGE_PARENT  0
 #define STAGE_CHILD   1
@@ -29,7 +25,7 @@ struct clone_t {
 	 * and retcode in this place
 	 */
 	char stack[4096] __attribute__((aligned(16)));
-	char stack_ptr[0];
+	char stack_ptr[0];  
 
 	/* There's two children. This is used to execute the different code. */
 	jmp_buf *env;
@@ -79,7 +75,7 @@ static int clone_parent(jmp_buf *env, int jmpval){
 #define LOG_LEVEL_INFO   3
 #define LOG_LEVEL_DEBUG   4
 
-void log_message(int log_level, const char* message) {
+void write_log(int log_level, const char* message) {
   time_t t = time(NULL);
   struct tm tm = *localtime(&t);
 
