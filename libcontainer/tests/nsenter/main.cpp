@@ -187,3 +187,77 @@ TEST(UpdateUidmapTest, ValidMap) {
     }
   }
 }
+
+TEST(UpdateGidmapTest, ValidMap) {
+  jmp_buf env;
+  int res, sync_child_pipe[2];
+  /* Create a sample map and write it to a temporary file */
+  char map[] = "         0          0 4294967295\n";
+  int fd;
+
+  /* Create a socket that connects STAGE_PARENT and STAGE_CHILD */
+  res = socketpair(AF_LOCAL, SOCK_STREAM, 0, sync_child_pipe);
+  EXPECT_GE(res, 0);
+
+  /* setjmp returns STAGE_PARENT the first time it is called
+   code that may cause a clone_parent function call to go STAGE_CHILD */
+  current_stage = setjmp(env);
+  switch(current_stage){
+    case STAGE_PARENT:{
+      pid_t child_pid = -1;
+      enum sync_t s;
+      /* Create a child process and get a child PID */
+      child_pid = clone_parent(&env, STAGE_CHILD);
+      EXPECT_GE(child_pid, 0);
+      /* Open a pipe that communicates with CHILD_STAGE */
+      syncfd = sync_child_pipe[1];
+      res = close(sync_child_pipe[0]);
+      EXPECT_GE(res, 0);
+
+      /* ... wait for creating a child process ... */
+      if (read(syncfd, &s, sizeof(s)) != sizeof(s)){
+        bail("failed to sync with stage-1: next state\n");
+      }
+      switch (s) {
+        case SYNC_USERMAP_PLS:
+          char map_path[1024];
+          char buf[1024];
+          
+          res = update_gidmap(child_pid, map, strlen(map));
+          EXPECT_EQ(res, 0);
+          /* Read uid_map and check whether it updates correctly. */
+          snprintf(map_path, sizeof(map_path), "/proc/%d/gid_map", child_pid);
+          fd = open(map_path, O_RDONLY);
+          res = read(fd, &buf, sizeof(buf));
+          EXPECT_GE(res, 0);
+          EXPECT_STREQ(buf, map);
+
+          s = SYNC_USERMAP_ACK;
+          res = write(syncfd, &s, sizeof(s));
+          EXPECT_EQ(res, sizeof(s));
+          break;
+      }
+    }
+    break;
+    case STAGE_CHILD:{
+			enum sync_t s;
+
+      /* We're in a child and thus need to tell the parent if we die. */
+      syncfd = sync_child_pipe[0];
+      res = close(sync_child_pipe[1]);
+      EXPECT_GE(res, 0);
+      /* Create new user namespace. */
+      res = unshare(CLONE_NEWUSER);
+      EXPECT_GE(res, 0);
+      s = SYNC_USERMAP_PLS;
+      res = write(syncfd, &s, sizeof(s));
+      EXPECT_EQ(res, sizeof(s));
+      /* ... wait for mapping ... */
+      res = read(syncfd, &s, sizeof(s));
+      EXPECT_EQ(res, sizeof(s));
+      EXPECT_EQ(s, SYNC_USERMAP_ACK);
+      /* Finish a child process */
+      exit(0);
+    }
+  }
+}
