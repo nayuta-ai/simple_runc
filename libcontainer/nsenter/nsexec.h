@@ -158,4 +158,8 @@ static int getenv_int(const char *name)
 	return ret;
 }
 
+// static void nl_parse(int fd, struct nlconfig_t *config)
+
+// void join_namespace(char *nslist)
+
 #endif  // NEXEC_H

@@ -30,7 +30,13 @@ void nsexec(void) {
 
   pipenum = getenv_int("_LIBCONTAINER_INITPIPE");
   printf("%d\n", pipenum);
+  if (pipenum < 0) {
+    return;
+  }
   
+  if (write(pipenum, "", 1) != 1)
+		bail("could not inform the parent we are past initial setup");
+
   // (To Do) Parse a config which describes setting for creating user-specific container.
 
   // Create socket pair between parent and child.
@@ -48,6 +54,7 @@ void nsexec(void) {
     // The runc init parent process creates new child process, the uid map, and gid map.
     // The child process creates a grandchild process and sends PID.
     case STAGE_PARENT:{
+      char message[1024];
       pid_t stage1_pid = -1, stage2_pid = -1;
       bool stage1_complete, stage2_complete;
 
@@ -80,8 +87,12 @@ void nsexec(void) {
             if (read(syncfd, &stage2_pid, sizeof(stage2_pid)) != sizeof(stage2_pid)) bail("failed to sync with stage-1: read(stage2_pid)");
             s = SYNC_RECVPID_ACK;
             if (write(syncfd, &s, sizeof(s)) != sizeof(s)) bail("failed to sync with stage-1: write(SYNC_RECVPID_ACK)");
-            // int len = dprintf(pipenum, "{\"stage1_pid\":%d,\"stage2_pid\":%d}\n", stage1_pid,stage2_pid);
-            // if (len < 0) bail("failed to sync with runc: write(pid-JSON)");
+            snprintf(message, 1024, "forward stage-1 (%d) and stage-2 (%d) pids to runc",
+						  stage1_pid, stage2_pid);
+
+            write_log(LOG_LEVEL_DEBUG, message);
+            int len = dprintf(pipenum, "{\"stage1_pid\":%d,\"stage2_pid\":%d}\n", stage1_pid,stage2_pid);
+            if (len < 0) bail("failed to sync with runc: write(pid-JSON)");
             break;
           case SYNC_CHILD_FINISH:
             write_log(LOG_LEVEL_DEBUG, "stage-1 complete");
