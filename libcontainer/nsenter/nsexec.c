@@ -7,6 +7,7 @@
 #include <sched.h>
 #include <sys/socket.h>
 #include <sys/prctl.h>
+
 #include "nsexec.h"
 #include "namespace.h"
 
@@ -21,10 +22,16 @@ void nsexec(void) {
   struct nlconfig_t config = { 0 };
   char map[] = "0 100000 100000\n";
   int sync_child_pipe[2], sync_grandchild_pipe[2];
+  printf("start nsexec\n");
   // sync_child_pipe[0] and sync_child_pipe[1] are now connected to each other
   // and can be used to send and receive data using the read and write functions
   if (setresgid(0, 0, 0) < 0)
 		bail("failed to become root in user namespace");
+
+  pipenum = getenv_int("_LIBCONTAINER_INITPIPE");
+  printf("%d\n", pipenum);
+  
+  // (To Do) Parse a config which describes setting for creating user-specific container.
 
   // Create socket pair between parent and child.
   if (socketpair(AF_LOCAL, SOCK_STREAM, 0, sync_child_pipe) < 0)
@@ -42,7 +49,7 @@ void nsexec(void) {
     // The child process creates a grandchild process and sends PID.
     case STAGE_PARENT:{
       pid_t stage1_pid = -1, stage2_pid = -1;
-      bool stage1_complete;
+      bool stage1_complete, stage2_complete;
 
       write_log(LOG_LEVEL_DEBUG, "stage-1");
       stage1_pid = clone_parent(&env, STAGE_CHILD);
@@ -86,6 +93,37 @@ void nsexec(void) {
         }
       }
       write_log(LOG_LEVEL_DEBUG, "<- stage-1 synchronisation loop");
+      /* Now sync with grandchild. */
+			syncfd = sync_grandchild_pipe[1];
+			if (close(sync_grandchild_pipe[0]) < 0)
+				bail("failed to close sync_grandchild_pipe[0] fd");
+
+			write_log(LOG_LEVEL_DEBUG, "-> stage-2 synchronisation loop");
+			stage2_complete = false;
+			while (!stage2_complete) {
+				enum sync_t s;
+
+				write_log(LOG_LEVEL_DEBUG, "signalling stage-2 to run");
+				s = SYNC_GRANDCHILD;
+				if (write(syncfd, &s, sizeof(s)) != sizeof(s)) {
+					bail("failed to sync with child: write(SYNC_GRANDCHILD)");
+				}
+
+				if (read(syncfd, &s, sizeof(s)) != sizeof(s))
+					bail("failed to sync with child: next state");
+
+				switch (s) {
+				case SYNC_CHILD_FINISH:
+					write_log(LOG_LEVEL_DEBUG, "stage-2 complete");
+					stage2_complete = true;
+					break;
+				default:
+					bail("unexpected sync value: %u", s);
+				}
+			}
+			write_log(LOG_LEVEL_DEBUG, "<- stage-2 synchronisation loop");
+			write_log(LOG_LEVEL_DEBUG, "<~ nsexec stage-0");
+			exit(0);
     }
     case STAGE_CHILD:{
       char message[1024];
@@ -146,16 +184,49 @@ void nsexec(void) {
     }
     break;
     case STAGE_INIT:{
+      enum sync_t s;
       write_log(LOG_LEVEL_DEBUG, "STAGE_INIT");
+      /* We're in a child and thus need to tell the parent if we die. */
+			syncfd = sync_grandchild_pipe[0];
+			if (close(sync_grandchild_pipe[1]) < 0)
+				bail("failed to close sync_grandchild_pipe[1] fd");
+
       if (close(sync_child_pipe[0]) < 0)
 				bail("failed to close sync_child_pipe[0] fd");
-      exit(0);
+      
+      write_log(LOG_LEVEL_DEBUG, "~> nsexec stage-2");
+
+			if (read(syncfd, &s, sizeof(s)) != sizeof(s))
+				bail("failed to sync with parent: read(SYNC_GRANDCHILD)");
+			if (s != SYNC_GRANDCHILD)
+				bail("failed to sync with parent: SYNC_GRANDCHILD: got %u", s);
+      
+      if (config.cloneflags & CLONE_NEWCGROUP) {
+				if (unshare(CLONE_NEWCGROUP) < 0)
+					bail("failed to unshare cgroup namespace");
+			}
+
+      write_log(LOG_LEVEL_DEBUG, "signal completion to stage-0");
+			s = SYNC_CHILD_FINISH;
+			if (write(syncfd, &s, sizeof(s)) != sizeof(s))
+				bail("failed to sync with parent: write(SYNC_CHILD_FINISH)");
+
+			/* Close sync pipes. */
+			if (close(sync_grandchild_pipe[0]) < 0)
+				bail("failed to close sync_grandchild_pipe[0] fd");
+      
+      /* Finish executing, let the Go runtime take over. */
+			write_log(LOG_LEVEL_DEBUG, "<= nsexec container setup");
+			write_log(LOG_LEVEL_DEBUG, "booting up go runtime ...");
+			return;
     }
     default:
-      break;
+      bail("unknown stage '%d' for jump value", current_stage);
   }
+  /* Should never be reached. */
+	bail("should never be reached");
 }
 
-int main() {
-  nsexec();
-}
+// int main() {
+//   nsexec();
+// }

@@ -261,3 +261,10 @@ TEST(UpdateGidmapTest, ValidMap) {
     }
   }
 }
+
+TEST(GetenvTest, ValidFileDiscriptor) {
+  int ret;
+  putenv("SomeVariable=3");
+  ret = getenv_int("SomeVariable");
+  EXPECT_EQ(ret, 3);
+}

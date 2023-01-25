@@ -2,6 +2,7 @@
 #define NEXEC_H
 
 #define _GNU_SOURCE
+#include <errno.h>
 #include <assert.h>
 #include <sched.h>
 #include <setjmp.h>
@@ -133,6 +134,28 @@ static int update_gidmap(pid_t pid, char *map, size_t map_len){
 
   close(fd);
   return 0;
+}
+
+static int getenv_int(const char *name)
+{
+	char *val, *endptr;
+	int ret;
+
+	val = getenv(name);
+	/* Treat empty value as unset variable. */
+	if (val == NULL || *val == '\0')
+		return -ENOENT;
+
+	ret = strtol(val, &endptr, 10);
+	if (val == endptr || *endptr != '\0')
+		bail("unable to parse %s=%s", name, val);
+	/*
+	 * Sanity check: this must be a non-negative number.
+	 */
+	if (ret < 0)
+		bail("bad value for %s=%s (%d)", name, val, ret);
+
+	return ret;
 }
 
 #endif  // NEXEC_H
