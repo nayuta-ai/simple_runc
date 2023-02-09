@@ -1,5 +1,4 @@
-
-FROM golang:1.19
+FROM golang:1.20-rc-bullseye
 
 WORKDIR /usr/src
 
@@ -7,15 +6,20 @@ WORKDIR /usr/src
 COPY go.mod go.sum ./
 RUN go mod download && go mod verify
 
-RUN apt-get update && \
-    apt-get install sudo
+ARG BRANCH_OR_TAG=main
+ARG CMAKE_OPTIONS=
+ENV DEBIAN_FRONTEND=noninteractive
+RUN env \
+  && apt-get update \
+  && apt-get install -q -y vim git cmake make g++ lcov \
+      gettext-base jq curl tmux\
+      libbsd0 libbsd-dev sudo kmod\
+  && apt-get clean \
+  && rm -rf /var/lib/apt/lists/*
 
-# duser setting
-# ARG USER_ID
-# ARG GROUP_ID
-# RUN addgroup --gid $GROUP_ID duser && \
-#     adduser --disabled-password --gecos '' --uid ${USER_ID} --gid ${GROUP_ID} duser && \
-#     adduser duser sudo && \
-#     echo '%sudo ALL=(ALL) NOPASSWD:ALL' >> /etc/sudoers
-
-# USER duser
+RUN git clone --depth=1 -b $BRANCH_OR_TAG -q https://github.com/google/googletest.git /googletest
+RUN mkdir -p /googletest/build
+WORKDIR /googletest/build
+RUN cmake .. ${CMAKE_OPTIONS} && make && make install
+WORKDIR /usr/src
+RUN rm -rf /googletest

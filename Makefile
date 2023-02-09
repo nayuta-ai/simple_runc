@@ -10,8 +10,6 @@ build:
 		-t $(IMAGE_NAME) \
 		--no-cache \
 		--force-rm=$(FORCE_RM) \
-		# --build-arg USER_ID=$(shell id -u) \
-		# --build-arg GROUP_ID=$(shell id -g) \
 		.
 
 run:
@@ -20,13 +18,15 @@ run:
 		-v $(PWD):/usr/src \
 		--name $(CONTAINER_NAME) \
 		--rm \
+		--cap-add ALL \
 		--shm-size $(SHM_SIZE) \
+		--privileged \
 		$(IMAGE_NAME)
 
 exec:
 	docker exec \
 		-it \
-		$(CONTAINER_NAME) /bin/bash 
+		$(CONTAINER_NAME) /bin/bash
 
 stop:
 	docker stop $(IMAGE_NAME)
