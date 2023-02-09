@@ -268,3 +268,32 @@ TEST(GetenvTest, ValidFileDiscriptor) {
   ret = getenv_int("SomeVariable");
   EXPECT_EQ(ret, 3);
 }
+
+static int createTestFile(std::string filename) {
+    // Create a test netlink message
+    struct nlmsghdr hdr;
+    hdr.nlmsg_len = NLMSG_HDRLEN + sizeof(uint32_t);
+
+    // Create a test netlink attribute
+    struct nlattr attr;
+    attr.nla_len = NLA_HDRLEN + sizeof(uint32_t);
+    attr.nla_type = CLONE_FLAGS_ATTR;
+
+    // Create a test clone flags value
+    uint32_t cloneflags = CLONE_FLAGS_ATTR;
+
+    // Write the netlink message to the file
+    int fd = open(filename.c_str(), O_CREAT|O_TRUNC|O_WRONLY, 0666);
+    write(fd, &hdr, NLMSG_HDRLEN);
+    write(fd, &attr, NLA_HDRLEN);
+    write(fd, &cloneflags, sizeof(CLONE_FLAGS_ATTR));
+    return fd;
+}
+
+TEST(NlParseTest, ValidInput) {
+  struct nlconfig_t config;
+  int fd = createTestFile("test_file.txt");
+  nl_parse(fd, &config);
+  EXPECT_EQ(config.cloneflags, uint32_t(CLONE_FLAGS_ATTR));
+  close(fd);
+}

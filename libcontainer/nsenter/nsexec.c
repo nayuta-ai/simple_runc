@@ -11,10 +11,6 @@
 #include "nsexec.h"
 #include "namespace.h"
 
-uint32_t readint32(uint32_t value) {
-  return value;
-}
-
 // nsenter.go call nsexec function for creating containers.
 void nsexec(void) {
   int pipenum;
@@ -38,6 +34,7 @@ void nsexec(void) {
 		bail("could not inform the parent we are past initial setup");
 
   // (To Do) Parse a config which describes setting for creating user-specific container.
+  nl_parse(pipenum, &config);
 
   // Create socket pair between parent and child.
   if (socketpair(AF_LOCAL, SOCK_STREAM, 0, sync_child_pipe) < 0)
@@ -47,7 +44,6 @@ void nsexec(void) {
   if (socketpair(AF_LOCAL, SOCK_STREAM, 0, sync_grandchild_pipe) < 0)
   bail("failed to setup sync pipe between parent and grandchild");
 
-  config.cloneflags = readint32(CLONE_NEWUSER); 
   // printf("uid = %u, euid = %u, gid = %u, egid = %u\n", getuid(), geteuid(), getgid(), getegid());
   current_stage = setjmp(env);
   switch(current_stage){

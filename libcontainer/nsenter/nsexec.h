@@ -11,6 +11,8 @@
 #include <unistd.h>
 #include <signal.h>
 
+#include <linux/netlink.h>
+
 #define STAGE_SETUP  -1
 #define STAGE_PARENT  0
 #define STAGE_CHILD   1
@@ -18,6 +20,13 @@
 int current_stage = STAGE_SETUP;
 
 static int syncfd = -1;
+
+#define CLONE_FLAGS_ATTR	27281
+
+static uint32_t readint32(char *buf)
+{
+	return *(uint32_t *) buf;
+}
 
 /* Assume the stack grows down, so arguments should be above it. */
 struct clone_t {
@@ -158,7 +167,57 @@ static int getenv_int(const char *name)
 	return ret;
 }
 
-// static void nl_parse(int fd, struct nlconfig_t *config)
+static void nl_parse(int fd, struct nlconfig_t *config)
+{
+  size_t len, size;
+  struct nlmsghdr hdr;
+  char *current, *data;
+
+  /* Retrieve the netlink header. */
+  len = read(fd, &hdr, NLMSG_HDRLEN);
+  if (len != NLMSG_HDRLEN) bail("invalid netlink header length %zu", len);
+
+  /* Retrieve data. */
+  size = NLMSG_PAYLOAD(&hdr, 0);
+  data = (char *)malloc(size);
+  current = data;
+
+  if (!data)
+		bail("failed to allocate %zu bytes of memory for nl_payload", size);
+  
+  len = read(fd, data, size);
+  if (len != size)
+		bail("failed to read netlink payload, %zu != %zu", len, size);
+  
+  /* Parse the netlink payload. */
+  config->data = data;
+  while (current < data + size) {
+    struct nlattr *nlattr = (struct nlattr *)current;
+    size_t payload_len = nlattr->nla_len - NLA_HDRLEN;
+    
+    /* Advance to payload. */
+    current += NLA_HDRLEN;
+
+    /* Handle payload. */
+    switch (nlattr->nla_type)
+    {
+    case CLONE_FLAGS_ATTR:
+      config->cloneflags = readint32(current);
+      break;
+    
+    default:
+      bail("unknown netlink message type %d", nlattr->nla_type);
+    }
+
+    current += NLA_ALIGN(payload_len);
+  }
+}
+
+
+void nl_free(struct nlconfig_t *config)
+{
+	free(config->data);
+}
 
 // void join_namespace(char *nslist)
 

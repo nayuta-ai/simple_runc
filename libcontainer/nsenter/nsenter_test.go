@@ -11,19 +11,16 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/opencontainers/runc/libcontainer"
+	"github.com/simple_runc/libcontainer"
+
 	"github.com/vishvananda/netlink/nl"
 	"golang.org/x/sys/unix"
 )
 
-func TestNsenterValidPaths(t *testing.T) {
+func TestNsenterBasic(t *testing.T) {
 	args := []string{"nsenter-exec"}
 	parent, child := newPipe(t)
 
-	// namespaces := []string{
-	// 	// join pid ns of the current process
-	// 	fmt.Sprintf("pid:/proc/%d/ns/pid", os.Getpid()),
-	// }
 	cmd := &exec.Cmd{
 		Path:       os.Args[0],
 		Args:       args,
@@ -38,16 +35,13 @@ func TestNsenterValidPaths(t *testing.T) {
 	}
 	child.Close()
 
-	// write cloneFlags (To Do)
+	// Format new net link request corresponding to the message
 	r := nl.NewNetlinkRequest(int(libcontainer.InitMsg), 0)
 	r.AddData(&libcontainer.Int32msg{
 		Type:  libcontainer.CloneFlagsAttr,
 		Value: uint32(unix.CLONE_NEWNET),
 	})
-	// r.AddData(&libcontainer.Bytemsg{
-	// 	Type:  libcontainer.NsPathsAttr,
-	// 	Value: []byte(strings.Join(namespaces, ",")),
-	// })
+
 	if _, err := io.Copy(parent, bytes.NewReader(r.Serialize())); err != nil {
 		t.Fatal(err)
 	}
@@ -67,6 +61,7 @@ func init() {
 	}
 }
 
+// newPipe creates new socket pair.
 func newPipe(t *testing.T) (parent *os.File, child *os.File) {
 	t.Helper()
 	fds, err := unix.Socketpair(unix.AF_LOCAL, unix.SOCK_STREAM|unix.SOCK_CLOEXEC, 0)
@@ -109,11 +104,10 @@ func reapChildren(t *testing.T, parent *os.File) {
 	if err := decoder.Decode(&pid); err != nil {
 		t.Fatal(err)
 	}
-	fmt.Println(pid)
 
 	// Reap children.
-	_, _ = unix.Wait4(pid.Pid1, nil, 0, nil)
-	_, _ = unix.Wait4(pid.Pid2, nil, 0, nil)
+	// _, _ = unix.Wait4(pid.Pid1, nil, 0, nil)
+	// _, _ = unix.Wait4(pid.Pid2, nil, 0, nil)
 
 	// Sanity check.
 	if pid.Pid1 == 0 || pid.Pid2 == 0 {
