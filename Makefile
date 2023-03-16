@@ -21,7 +21,8 @@ run:
 		--cap-add ALL \
 		--shm-size $(SHM_SIZE) \
 		--privileged \
-		$(IMAGE_NAME)
+		$(IMAGE_NAME) \
+		/sbin/init
 
 exec:
 	docker exec \
@@ -29,7 +30,7 @@ exec:
 		$(CONTAINER_NAME) /bin/bash
 
 stop:
-	docker stop $(IMAGE_NAME)
+	docker stop $(CONTAINER_NAME)
 
 restart: stop run
 

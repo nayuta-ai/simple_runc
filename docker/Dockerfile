@@ -11,9 +11,8 @@ ARG CMAKE_OPTIONS=
 ENV DEBIAN_FRONTEND=noninteractive
 RUN env \
   && apt-get update \
-  && apt-get install -q -y vim git cmake make g++ lcov \
-      gettext-base jq curl tmux\
-      libbsd0 libbsd-dev sudo kmod\
+  && apt-get install -q -y init systemd vim git cmake make  \
+      gettext-base jq curl tmux g++ lcov libbsd0 libbsd-dev sudo kmod\
   && apt-get clean \
   && rm -rf /var/lib/apt/lists/*
 
