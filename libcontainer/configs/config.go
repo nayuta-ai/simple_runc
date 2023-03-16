@@ -1,5 +1,7 @@
 package configs
 
+import "github.com/opencontainers/runc/libcontainer/devices"
+
 // Config defines configuration options for executing a process inside a contained environment.
 type Config struct {
 	// NoPivotRoot will use MS_MOVE and a chroot to jail the process into the container's rootfs
@@ -12,6 +14,9 @@ type Config struct {
 	// Readonlyfs will remount the container's rootfs as readonly where only externally mounted
 	// bind mounts are writtable.
 	Readonlyfs bool `json:"readonlyfs"`
+
+	// The device nodes that should be automatically created within the container upon container start.  Note, make sure that the node is marked as allowed in the cgroup as well!
+	Devices []*devices.Device `json:"devices"`
 
 	// Hostname optionally sets the container's hostname if provided
 	Hostname string `json:"hostname"`
