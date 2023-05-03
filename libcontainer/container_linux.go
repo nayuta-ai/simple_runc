@@ -1,6 +1,6 @@
 package libcontainer
 
-import "github.com/opencontainers/runc/libcontainer/utils"
+import "github.com/simple_runc/libcontainer/utils"
 
 type Container struct{}
 

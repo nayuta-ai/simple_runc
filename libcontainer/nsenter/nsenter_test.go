@@ -11,13 +11,13 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/simple_runc/libcontainer"
+	"github.com/opencontainers/runc/libcontainer"
 
 	"github.com/vishvananda/netlink/nl"
 	"golang.org/x/sys/unix"
 )
 
-func TestNsenterBasic(t *testing.T) {
+func TestGetPid(t *testing.T) {
 	args := []string{"nsenter-exec"}
 	parent, child := newPipe(t)
 
@@ -48,6 +48,96 @@ func TestNsenterBasic(t *testing.T) {
 
 	initWaiter(t, parent)
 
+	if err := cmd.Wait(); err != nil {
+		t.Fatalf("nsenter error: %v", err)
+	}
+
+	reapChildren(t, parent)
+}
+
+func TestNsenterValidPaths(t *testing.T) {
+	args := []string{"nsenter-exec"}
+	parent, child := newPipe(t)
+
+	namespaces := []string{
+		// join pid ns of the current process
+		fmt.Sprintf("pid:/proc/%d/ns/pid", os.Getpid()),
+	}
+
+	cmd := &exec.Cmd{
+		Path:       os.Args[0],
+		Args:       args,
+		ExtraFiles: []*os.File{child},
+		Env:        []string{"_LIBCONTAINER_INITPIPE=3"},
+		Stdout:     os.Stdout,
+		Stderr:     os.Stderr,
+	}
+
+	if err := cmd.Start(); err != nil {
+		t.Fatalf("nsenter failed to start: %v", err)
+	}
+	child.Close()
+
+	// Format new net link request corresponding to the message
+	r := nl.NewNetlinkRequest(int(libcontainer.InitMsg), 0)
+	r.AddData(&libcontainer.Int32msg{
+		Type:  libcontainer.CloneFlagsAttr,
+		Value: uint32(unix.CLONE_NEWNET),
+	})
+	r.AddData(&libcontainer.Bytemsg{
+		Type:  libcontainer.NsPathsAttr,
+		Value: []byte(strings.Join(namespaces, ",")),
+	})
+
+	if _, err := io.Copy(parent, bytes.NewReader(r.Serialize())); err != nil {
+		t.Fatal(err)
+	}
+
+	initWaiter(t, parent)
+	reapChildren(t, parent)
+}
+
+func TestNsenterChildLogging(t *testing.T) {
+	args := []string{"nsenter-exec"}
+	parent, child := newPipe(t)
+	logread, logwrite := newPipe(t)
+
+	namespaces := []string{
+		// join pid ns of the current process
+		fmt.Sprintf("pid:/proc/%d/ns/pid", os.Getpid()),
+	}
+	cmd := &exec.Cmd{
+		Path:       os.Args[0],
+		Args:       args,
+		ExtraFiles: []*os.File{child, logwrite},
+		Env:        []string{"_LIBCONTAINER_INITPIPE=3", "_LIBCONTAINER_LOGPIPE=4"},
+		Stdout:     os.Stdout,
+		Stderr:     os.Stderr,
+	}
+
+	if err := cmd.Start(); err != nil {
+		t.Fatalf("nsenter failed to start: %v", err)
+	}
+	child.Close()
+	logwrite.Close()
+
+	// write cloneFlags
+	r := nl.NewNetlinkRequest(int(libcontainer.InitMsg), 0)
+	r.AddData(&libcontainer.Int32msg{
+		Type:  libcontainer.CloneFlagsAttr,
+		Value: uint32(unix.CLONE_NEWNET),
+	})
+	r.AddData(&libcontainer.Bytemsg{
+		Type:  libcontainer.NsPathsAttr,
+		Value: []byte(strings.Join(namespaces, ",")),
+	})
+	if _, err := io.Copy(parent, bytes.NewReader(r.Serialize())); err != nil {
+		t.Fatal(err)
+	}
+
+	initWaiter(t, parent)
+
+	getLogs(t, logread)
 	if err := cmd.Wait(); err != nil {
 		t.Fatalf("nsenter error: %v", err)
 	}
@@ -106,11 +196,33 @@ func reapChildren(t *testing.T, parent *os.File) {
 	}
 
 	// Reap children.
-	// _, _ = unix.Wait4(pid.Pid1, nil, 0, nil)
-	// _, _ = unix.Wait4(pid.Pid2, nil, 0, nil)
+	_, _ = unix.Wait4(pid.Pid1, nil, 0, nil)
+	_, _ = unix.Wait4(pid.Pid2, nil, 0, nil)
 
 	// Sanity check.
 	if pid.Pid1 == 0 || pid.Pid2 == 0 {
 		t.Fatal("got pids:", pid)
+	}
+}
+
+func getLogs(t *testing.T, logread *os.File) {
+	logsDecoder := json.NewDecoder(logread)
+	logsDecoder.DisallowUnknownFields()
+	var logentry struct {
+		Level string `json:"level"`
+		Msg   string `json:msg`
+	}
+
+	for {
+		if err := logsDecoder.Decode(&logentry); err != nil {
+			if errors.Is(err, io.EOF) {
+				return
+			}
+			t.Fatal("init log decoding error:", err)
+		}
+		t.Logf("logentry:%+v", logentry)
+		if logentry.Level == "" || logentry.Msg == "" {
+			t.Fatalf("init log: empty log entry: %+v", logentry)
+		}
 	}
 }
