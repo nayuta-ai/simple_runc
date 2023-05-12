@@ -3,6 +3,7 @@ package libcontainer
 import "github.com/simple_runc/libcontainer/utils"
 
 type Container struct{}
+type netlinkError struct{ error }
 
 // Create new init process.
 func (c *Container) newInitProcess(messageSockPair filePair) (*initProcess, error) {
